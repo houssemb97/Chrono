@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ChronoClasse — Saisie mot par mot + Autocomplétion clavier</title>
+<title>ChronoClasse — Saisie + Clic + Autocomplétion + Mode du jour</title>
 <style>
   :root { --gap: 10px; --radius: 10px; }
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; background:#0b0f14; color:#e8eef6; }
@@ -12,9 +12,12 @@
   label, select, button, input { font-size:16px; }
   select, input[type="text"] { background:#0f1420; color:#e8eef6; border:1px solid #2a3346; border-radius:8px; padding:10px 12px; }
   button { background:#2a6bf2; color:white; border:none; border-radius:8px; padding:10px 14px; cursor:pointer; }
+  button.secondary { background:#23314a; }
+  button.warn { background:#6f4f10; }
   button:disabled { opacity:.5; cursor:not-allowed; }
   .chips { display:flex; flex-wrap:wrap; gap:var(--gap); margin-top:10px; }
-  .chip { background:#0f1420; border:1px solid #2a3346; padding:8px 10px; border-radius:999px; }
+  .chip { background:#0f1420; border:1px solid #2a3346; padding:8px 10px; border-radius:999px; cursor:pointer; user-select:none; transition:transform .06s ease; }
+  .chip.disabled { opacity:.45; text-decoration:line-through; cursor:default; }
   .row { display:flex; gap:var(--gap); align-items:center; flex-wrap:wrap; }
   .muted { color:#9fb0d0; font-size:14px; }
   .ok { color:#31d0aa; }
@@ -22,7 +25,8 @@
   .notice { margin-top:8px; min-height:1.2em; }
   .list { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
   .pill { background:#172033; border:1px solid #2a3346; padding:6px 10px; border-radius:999px; }
-  .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; background:#0f1420; border:1px solid #2a3346; padding:2px 6px; border-radius:6px; }
+  .kbd { font-family: ui-monospace, Menlo, Consolas, monospace; background:#0f1420; border:1px solid #2a3346; padding:2px 6px; border-radius:6px; }
+  .modepill { background:#14351f; border:1px solid #1e6b3e; color:#bff3cf; }
   /* Autocomplete */
   .ac-wrap { position:relative; flex:1; min-width:260px; }
   .ac-list { position:absolute; top:100%; left:0; right:0; background:#0f1420; border:1px solid #2a3346; border-top:none; border-radius:0 0 8px 8px; max-height:220px; overflow:auto; z-index:10; display:none; }
@@ -36,21 +40,37 @@
     30%, 50%, 70% { transform: translateX(-4px); }
     40%, 60% { transform: translateX(4px); }
   }
+  /* Flash sur chips */
+  .flash-ok { animation: flashok .6s ease; }
+  .flash-ko { animation: flashko .6s ease; }
+  @keyframes flashok {
+    0% { background:#0f1420; }
+    20% { background:#0f2a20; transform:scale(1.05); }
+    100% { background:#0f1420; transform:scale(1); }
+  }
+  @keyframes flashko {
+    0% { background:#0f1420; }
+    20% { background:#2a1414; transform:scale(0.98); }
+    100% { background:#0f1420; transform:scale(1); }
+  }
 </style>
 </head>
 <body>
   <h1>ChronoClasse</h1>
-  <p class="muted">Choisis une catégorie, puis entre **un mot à la fois** dans l’ordre chronologique attendu. Autocomplétion dès 3 lettres (↓/↑ puis Entrée).</p>
+  <p class="muted">Donne les 5 propositions <b>dans l’ordre chronologique</b>, un <b>mot à la fois</b>.  
+  Tu peux <b>taper</b> (autocomplétion ≥ 3 lettres, ↓/↑ + Entrée) <i>ou</i> <b>cliquer</b> un mot.</p>
 
   <div class="card">
     <div class="row">
       <label for="cat">Catégorie :</label>
       <select id="cat"></select>
       <button id="new">Nouvelle manche</button>
+      <button id="toggleDaily" class="secondary">Mode du jour : <span id="dailyState">OFF</span></button>
       <span id="meta" class="muted"></span>
+      <span id="dailyPill" class="pill modepill" style="display:none;">Mode du jour actif</span>
     </div>
     <div style="margin-top:10px;">
-      <div class="muted">Propositions (5 éléments tirés) :</div>
+      <div class="muted">Propositions (5 éléments) — clique pour proposer :</div>
       <div id="chips" class="chips"></div>
     </div>
   </div>
@@ -63,7 +83,7 @@
       </div>
       <button id="validate">Valider ce mot</button>
       <button id="undo">Annuler dernier</button>
-      <button id="reset">Réinitialiser</button>
+      <button id="reset" class="warn">Réinitialiser</button>
     </div>
     <div id="notice" class="notice"></div>
     <div>
@@ -75,10 +95,11 @@
 
   <div class="card">
     <details>
-      <summary>Comment jouer au clavier ?</summary>
+      <summary>Astuce clavier</summary>
       <p class="muted">
-        Tape au moins 3 lettres → utilise <span class="kbd">↓</span>/<span class="kbd">↑</span> pour naviguer les suggestions → <span class="kbd">Entrée</span> pour insérer la suggestion.  
-        Si aucune suggestion n’est active, <span class="kbd">Entrée</span> valide directement le mot saisi.
+        Tape ≥ 3 lettres → <span class="kbd">↓</span>/<span class="kbd">↑</span> pour naviguer les suggestions → <span class="kbd">Entrée</span> pour insérer.  
+        Si aucune suggestion n’est active, <span class="kbd">Entrée</span> valide le mot saisi.  
+        Tu peux aussi <b>cliquer</b> un mot proposé pour le valider.
       </p>
     </details>
   </div>
@@ -86,7 +107,6 @@
 <script>
 (() => {
   // ----------------------- Données de démo -----------------------
-  // Tu peux bien sûr enrichir / modifier ces catégories.
   const CATEGORIES = {
     "Objets": [
       { label:"Boussole", year:1100 },
@@ -95,28 +115,30 @@
       { label:"Appareil photo", year:1826 },
       { label:"Ampoule électrique", year:1879 },
       { label:"Avion", year:1903 },
-      { label:"Trotinette électrique", year:1996 },
+      { label:"Transistor", year:1947 },
+      { label:"Microprocesseur", year:1971 },
+      { label:"Lecteur CD", year:1982 },
       { label:"Smartphone", year:2007 }
     ],
     "Musique": [
+      { label:"Vinyle LP", year:1948 },
+      { label:"Cassette audio", year:1963 },
+      { label:"Synthétiseur Moog", year:1964 },
       { label:"Walkman", year:1979 },
       { label:"CD audio", year:1982 },
       { label:"MP3 (format)", year:1993 },
       { label:"iPod", year:2001 },
-      { label:"Spotify", year:2008 },
-      { label:"Synthétiseur Moog", year:1964 },
-      { label:"Vinyle LP", year:1948 },
-      { label:"Cassette audio", year:1963 }
+      { label:"Spotify", year:2008 }
     ],
     "Cinéma": [
       { label:"Cinématographe", year:1895 },
       { label:"Film parlant", year:1927 },
       { label:"Technicolor", year:1932 },
-      { label:"CGI moderne", year:1973 },
-      { label:"DVD vidéo", year:1996 },
-      { label:"Streaming grand public", year:2007 },
       { label:"IMAX", year:1970 },
-      { label:"3D polarisée", year:1986 }
+      { label:"CGI moderne", year:1973 },
+      { label:"3D polarisée", year:1986 },
+      { label:"DVD vidéo", year:1996 },
+      { label:"Streaming grand public", year:2007 }
     ],
     "Événements historiques": [
       { label:"Prise de la Bastille", year:1789 },
@@ -124,45 +146,50 @@
       { label:"Première Guerre mondiale", year:1914 },
       { label:"Chute du mur de Berlin", year:1989 },
       { label:"Traité de Maastricht", year:1992 },
-      { label:"Euro fiduciaire", year:2002 },
       { label:"Internet grand public", year:1993 },
-      { label:"Première station spatiale", year:1971 }
+      { label:"Euro fiduciaire", year:2002 },
+      { label:"Premier vol habité privé", year:2020 }
     ]
   };
 
   // ----------------------- Utils -----------------------
   const $ = sel => document.querySelector(sel);
+  const norm = s => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'').trim();
+
+  // Seeded RNG for daily mode (Mulberry32)
+  function mulberry32(a){ return function(){ var t = a += 0x6D2B79F5; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function hashStr(str){ let h=2166136261>>>0; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+  function choiceNSeeded(arr, n, seed){ const rng = mulberry32(seed); const pool=[...arr]; const out=[]; while(out.length<n && pool.length){ const i=Math.floor(rng()*pool.length); out.push(...pool.splice(i,1)); } return out; }
+
+  // ----------------------- Éléments -----------------------
   const elCat = $('#cat'), elNew = $('#new'), elChips = $('#chips');
   const elGuess = $('#guess'), elAC = $('#ac'), elValidate = $('#validate');
   const elUndo = $('#undo'), elReset = $('#reset'), elNotice = $('#notice');
   const elEntered = $('#entered'), elResult = $('#result'), elMeta = $('#meta');
-
-  const norm = s => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'').trim();
-
-  function choiceN(arr, n) {
-    const pool = [...arr];
-    const out = [];
-    while (out.length < n && pool.length) {
-      const i = Math.floor(Math.random() * pool.length);
-      out.push(pool.splice(i,1)[0]);
-    }
-    return out;
-  }
+  const elToggleDaily = $('#toggleDaily'), elDailyState = $('#dailyState'), elDailyPill = $('#dailyPill');
 
   // ----------------------- État -----------------------
-  let currentPool = [];       // les 5 propositions (objets {label, year})
+  let currentPool = [];       // 5 objets {label,year}
   let expectedOrder = [];     // labels triés par year asc
-  let entered = [];           // labels saisis validés (dans l'ordre)
-  let acIndex = -1;           // index sélectionné dans autocomplete
+  let entered = [];           // labels saisis validés
+  let acIndex = -1;           // index suggestion active
+  let dailyMode = JSON.parse(localStorage.getItem('chronoclasse-daily')||'false');
 
-  // ----------------------- UI helpers -----------------------
+  // ----------------------- Rendu -----------------------
   function renderChips() {
     elChips.innerHTML = '';
     currentPool.forEach(o => {
-      const span = document.createElement('span');
-      span.className = 'chip';
-      span.textContent = `${o.label}`;
-      elChips.appendChild(span);
+      const used = entered.includes(o.label);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip' + (used ? ' disabled' : '');
+      b.textContent = o.label;
+      b.disabled = used;
+      b.addEventListener('click', () => {
+        if (b.disabled) return;
+        attemptValidate(o.label, b); // clic = validation
+      });
+      elChips.appendChild(b);
     });
   }
   function renderEntered() {
@@ -193,17 +220,13 @@
       const div = document.createElement('div');
       div.className = 'ac-item';
       div.textContent = lab;
-      div.setAttribute('data-index', i);
       div.addEventListener('mouseenter', () => setActive(i));
-      div.addEventListener('mousedown', (e) => { // mousedown pour éviter blur input
-        e.preventDefault();
-        pickAC(i, true);
-      });
+      div.addEventListener('mousedown', (e) => { e.preventDefault(); pickAC(i, true); });
       elAC.appendChild(div);
     });
     const hint = document.createElement('div');
     hint.className = 'ac-item kbdhint';
-    hint.innerHTML = 'Astuce : <span class="kbd">↓</span>/<span class="kbd">↑</span> pour naviguer, <span class="kbd">Entrée</span> pour insérer';
+    hint.innerHTML = 'Astuce : <span class="kbd">↓</span>/<span class="kbd">↑</span> pour naviguer, <span class="kbd">Entrée</span> pour insérer';
     elAC.appendChild(hint);
     elAC.style.display = items.length ? 'block' : 'none';
     acIndex = items.length ? 0 : -1;
@@ -235,7 +258,6 @@
     closeAC();
     if (andValidate) validateCurrent();
   }
-
   function updateAC(){
     const q = norm(elGuess.value);
     const remaining = currentPool.map(o=>o.label).filter(l => !entered.includes(l));
@@ -249,12 +271,11 @@
     if (e.key === 'ArrowDown') { e.preventDefault(); moveAC(1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); moveAC(-1); }
     else if (e.key === 'Enter') {
-      // Si une suggestion est active, on l'insère ; sinon on valide le mot tapé
       const hasOpen = elAC.style.display === 'block';
       const items = elAC.querySelectorAll('.ac-item:not(.kbdhint)');
       if (hasOpen && items.length && acIndex >= 0) {
         e.preventDefault();
-        pickAC(acIndex, true); // insère ET valide
+        pickAC(acIndex, true);
       } else {
         e.preventDefault();
         validateCurrent();
@@ -267,64 +288,136 @@
     if (!elAC.contains(e.target) && e.target !== elGuess) closeAC();
   });
 
-  // ----------------------- Jeu -----------------------
-  function newRound() {
-    entered = []; clearResult(); setNotice('');
-    // tirer 5 éléments uniques dans la catégorie choisie
-    const catName = elCat.value;
-    const pool = CATEGORIES[catName];
-    currentPool = choiceN(pool, 5);
-    expectedOrder = [...currentPool].sort((a,b)=>a.year-b.year).map(o=>o.label);
-    renderChips();
-    renderEntered();
-    elMeta.textContent = `Catégorie « ${catName} » — Référence: années ${Math.min(...currentPool.map(o=>o.year))}–${Math.max(...currentPool.map(o=>o.year))}`;
-    elGuess.value = ''; elGuess.focus();
-    closeAC();
+  // ----------------------- Logique de validation -----------------------
+  function flash(el, ok) {
+    if (!el) return;
+    el.classList.remove('flash-ok','flash-ko'); void el.offsetWidth;
+    el.classList.add(ok ? 'flash-ok' : 'flash-ko');
+    setTimeout(() => el.classList.remove('flash-ok','flash-ko'), 650);
+  }
+
+  function findChipByLabel(label){
+    const nodes = [...elChips.querySelectorAll('.chip')];
+    return nodes.find(n => n.textContent === label);
+  }
+
+  function attemptValidate(label, chipEl){
+    // 1) doit être dans les propositions restantes
+    const remaining = currentPool.map(o=>o.label).filter(l => !entered.includes(l));
+    if (!remaining.includes(label)) {
+      setNotice('Mot invalide (non présent ou déjà utilisé).', false);
+      flash(chipEl || findChipByLabel(label), false);
+      // Efface la barre si ça vient de la saisie
+      elGuess.value = '';
+      closeAC();
+      elGuess.focus();
+      return false;
+    }
+    // 2) doit être le prochain attendu
+    const want = expectedOrder[entered.length];
+    if (label === want) {
+      entered.push(label);
+      renderEntered();
+      renderChips();
+      setNotice('Correct ✅', true);
+      flash(chipEl || findChipByLabel(label), true);
+      clearResult();
+      elGuess.value = '';
+      closeAC();
+      if (entered.length === 5) finish();
+      else { updateAC(); elGuess.focus(); }
+      return true;
+    } else {
+      setNotice(`Faux ❌ — Ce n'est pas le mot attendu à la position ${entered.length+1}.`, false);
+      flash(chipEl || findChipByLabel(label), false);
+      // Efface la barre sur erreur
+      elGuess.value = '';
+      closeAC();
+      elGuess.focus();
+      return false;
+    }
   }
 
   function validateCurrent(){
     const val = elGuess.value.trim();
     if (!val) { setNotice('Entre un mot.', false); return; }
-    // doit être dans les propositions restantes
-    const remaining = currentPool.map(o=>o.label).filter(l => !entered.includes(l));
-    if (!remaining.includes(val)) { setNotice('Mot invalide (non présent ou déjà utilisé).', false); return; }
-    // doit correspondre au prochain attendu
-    const want = expectedOrder[entered.length];
-    if (val === want) {
-      entered.push(val);
-      renderEntered();
-      setNotice('Correct ✅', true);
-      elGuess.value = '';
-      closeAC();
-      // fin de partie si 5
-      if (entered.length === 5) {
-        finish();
-      } else {
-        updateAC();
-        elGuess.focus();
-      }
-    } else {
-      setNotice(`Faux ❌ — Le mot attendu à la position ${entered.length+1} est différent.`, false);
-    }
+    attemptValidate(val, null);
   }
 
   function finish(){
-    // Score: 100 - 5 par erreur (mais ici on valide seulement si bon, donc 100 si réussi sans erreur)
-    // On affiche quand même la correction complète
     const correct = expectedOrder.join(' → ');
     elResult.innerHTML = `<span class="ok">Bravo !</span> Ordre correct : ${correct}`;
     setNotice('');
   }
 
-  elValidate.addEventListener('click', validateCurrent);
-  elUndo.addEventListener('click', () => {
-    if (!entered.length) return;
-    entered.pop();
-    renderEntered(); setNotice('Dernier retiré.', true);
+  // ----------------------- Mode du jour -----------------------
+  function setDailyUI(){
+    elDailyState.textContent = dailyMode ? 'ON' : 'OFF';
+    elDailyPill.style.display = dailyMode ? 'inline-block' : 'none';
+  }
+  function getDailySeed(catName){
+    const d = new Date();
+    const iso = d.toISOString().slice(0,10); // YYYY-MM-DD
+    return hashStr(`${iso}:${catName}`);
+  }
+
+  // ----------------------- Manche -----------------------
+  function newRound() {
+    entered = []; elResult.textContent = ''; setNotice('');
+    const catName = elCat.value;
+    const pool = CATEGORIES[catName];
+
+    if (dailyMode) {
+      const seed = getDailySeed(catName);
+      currentPool = choiceNSeeded(pool, 5, seed);
+    } else {
+      // tirage pseudo-aléatoire classique
+      const temp = [...pool];
+      currentPool = [];
+      while (currentPool.length < 5 && temp.length) {
+        currentPool.push(...temp.splice(Math.floor(Math.random()*temp.length),1));
+      }
+    }
+
+    expectedOrder = [...currentPool].sort((a,b)=>a.year-b.year).map(o=>o.label);
+    renderChips();
+    renderEntered();
+    elMeta.textContent = `Catégorie « ${catName} » — repère: ${Math.min(...currentPool.map(o=>o.year))}–${Math.max(...currentPool.map(o=>o.year))}`;
     elGuess.value = ''; elGuess.focus();
-    updateAC();
+    closeAC();
+  }
+
+  // ----------------------- Contrôles -----------------------
+  const elToggleDailyHandler = () => {
+    dailyMode = !dailyMode;
+    localStorage.setItem('chronoclasse-daily', JSON.stringify(dailyMode));
+    setDailyUI();
+    newRound(); // on relance une manche avec le nouveau mode
+  };
+
+  $('#validate').addEventListener('click', validateCurrent);
+  $('#undo').addEventListener('click', () => {
+    if (!entered.length) return;
+    const removed = entered.pop();
+    setNotice('Dernier retiré.', true);
+    elGuess.value = '';
+    renderEntered();
+    renderChips();
+    closeAC();
+    elGuess.focus();
   });
-  elReset.addEventListener('click', () => { entered = []; renderEntered(); setNotice('Réinitialisé.', true); elGuess.value=''; elGuess.focus(); updateAC(); clearResult(); });
+  $('#reset').addEventListener('click', () => {
+    entered = [];
+    setNotice('Réinitialisé.', true);
+    elGuess.value = '';
+    renderEntered();
+    renderChips();
+    closeAC();
+    elGuess.focus();
+  });
+  elNew.addEventListener('click', newRound);
+  elCat.addEventListener('change', newRound);
+  elToggleDaily.addEventListener('click', elToggleDailyHandler);
 
   // ----------------------- Init -----------------------
   function populateCats(){
@@ -335,10 +428,8 @@
       elCat.appendChild(opt);
     });
   }
-  elNew.addEventListener('click', newRound);
-  elCat.addEventListener('change', newRound);
-
   populateCats();
+  setDailyUI();
   newRound();
 })();
 </script>
