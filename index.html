@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ChronoClasse — Saisie mot par mot + Autocomplétion clavier</title>
+<style>
+  :root { --gap: 10px; --radius: 10px; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; background:#0b0f14; color:#e8eef6; }
+  h1 { margin:0 0 8px; font-size:24px; }
+  .card { background:#121826; border:1px solid #223; border-radius:var(--radius); padding:16px; margin-bottom:16px; }
+  label, select, button, input { font-size:16px; }
+  select, input[type="text"] { background:#0f1420; color:#e8eef6; border:1px solid #2a3346; border-radius:8px; padding:10px 12px; }
+  button { background:#2a6bf2; color:white; border:none; border-radius:8px; padding:10px 14px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .chips { display:flex; flex-wrap:wrap; gap:var(--gap); margin-top:10px; }
+  .chip { background:#0f1420; border:1px solid #2a3346; padding:8px 10px; border-radius:999px; }
+  .row { display:flex; gap:var(--gap); align-items:center; flex-wrap:wrap; }
+  .muted { color:#9fb0d0; font-size:14px; }
+  .ok { color:#31d0aa; }
+  .ko { color:#ff6b6b; }
+  .notice { margin-top:8px; min-height:1.2em; }
+  .list { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+  .pill { background:#172033; border:1px solid #2a3346; padding:6px 10px; border-radius:999px; }
+  .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; background:#0f1420; border:1px solid #2a3346; padding:2px 6px; border-radius:6px; }
+  /* Autocomplete */
+  .ac-wrap { position:relative; flex:1; min-width:260px; }
+  .ac-list { position:absolute; top:100%; left:0; right:0; background:#0f1420; border:1px solid #2a3346; border-top:none; border-radius:0 0 8px 8px; max-height:220px; overflow:auto; z-index:10; display:none; }
+  .ac-item { padding:8px 10px; cursor:pointer; }
+  .ac-item.kbdhint { font-size:13px; color:#9fb0d0; border-top:1px dashed #223; }
+  .ac-item.active, .ac-item:hover { background:#172033; }
+  .shake { animation: shake 0.35s ease; }
+  @keyframes shake {
+    10%, 90% { transform: translateX(-1px); }
+    20%, 80% { transform: translateX(2px); }
+    30%, 50%, 70% { transform: translateX(-4px); }
+    40%, 60% { transform: translateX(4px); }
+  }
+</style>
+</head>
+<body>
+  <h1>ChronoClasse</h1>
+  <p class="muted">Choisis une catégorie, puis entre **un mot à la fois** dans l’ordre chronologique attendu. Autocomplétion dès 3 lettres (↓/↑ puis Entrée).</p>
+
+  <div class="card">
+    <div class="row">
+      <label for="cat">Catégorie :</label>
+      <select id="cat"></select>
+      <button id="new">Nouvelle manche</button>
+      <span id="meta" class="muted"></span>
+    </div>
+    <div style="margin-top:10px;">
+      <div class="muted">Propositions (5 éléments tirés) :</div>
+      <div id="chips" class="chips"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="ac-wrap">
+        <input id="guess" type="text" placeholder="Tape un mot… (≥3 lettres pour proposer)" autocomplete="off" spellcheck="false">
+        <div id="ac" class="ac-list"></div>
+      </div>
+      <button id="validate">Valider ce mot</button>
+      <button id="undo">Annuler dernier</button>
+      <button id="reset">Réinitialiser</button>
+    </div>
+    <div id="notice" class="notice"></div>
+    <div>
+      <div class="muted">Votre ordre saisi :</div>
+      <div id="entered" class="list"></div>
+    </div>
+    <div id="result" class="notice"></div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Comment jouer au clavier ?</summary>
+      <p class="muted">
+        Tape au moins 3 lettres → utilise <span class="kbd">↓</span>/<span class="kbd">↑</span> pour naviguer les suggestions → <span class="kbd">Entrée</span> pour insérer la suggestion.  
+        Si aucune suggestion n’est active, <span class="kbd">Entrée</span> valide directement le mot saisi.
+      </p>
+    </details>
+  </div>
+
+<script>
+(() => {
+  // ----------------------- Données de démo -----------------------
+  // Tu peux bien sûr enrichir / modifier ces catégories.
+  const CATEGORIES = {
+    "Objets": [
+      { label:"Boussole", year:1100 },
+      { label:"Imprimerie", year:1440 },
+      { label:"Machine à vapeur", year:1712 },
+      { label:"Appareil photo", year:1826 },
+      { label:"Ampoule électrique", year:1879 },
+      { label:"Avion", year:1903 },
+      { label:"Trotinette électrique", year:1996 },
+      { label:"Smartphone", year:2007 }
+    ],
+    "Musique": [
+      { label:"Walkman", year:1979 },
+      { label:"CD audio", year:1982 },
+      { label:"MP3 (format)", year:1993 },
+      { label:"iPod", year:2001 },
+      { label:"Spotify", year:2008 },
+      { label:"Synthétiseur Moog", year:1964 },
+      { label:"Vinyle LP", year:1948 },
+      { label:"Cassette audio", year:1963 }
+    ],
+    "Cinéma": [
+      { label:"Cinématographe", year:1895 },
+      { label:"Film parlant", year:1927 },
+      { label:"Technicolor", year:1932 },
+      { label:"CGI moderne", year:1973 },
+      { label:"DVD vidéo", year:1996 },
+      { label:"Streaming grand public", year:2007 },
+      { label:"IMAX", year:1970 },
+      { label:"3D polarisée", year:1986 }
+    ],
+    "Événements historiques": [
+      { label:"Prise de la Bastille", year:1789 },
+      { label:"Télégraphe de Morse (démo)", year:1838 },
+      { label:"Première Guerre mondiale", year:1914 },
+      { label:"Chute du mur de Berlin", year:1989 },
+      { label:"Traité de Maastricht", year:1992 },
+      { label:"Euro fiduciaire", year:2002 },
+      { label:"Internet grand public", year:1993 },
+      { label:"Première station spatiale", year:1971 }
+    ]
+  };
+
+  // ----------------------- Utils -----------------------
+  const $ = sel => document.querySelector(sel);
+  const elCat = $('#cat'), elNew = $('#new'), elChips = $('#chips');
+  const elGuess = $('#guess'), elAC = $('#ac'), elValidate = $('#validate');
+  const elUndo = $('#undo'), elReset = $('#reset'), elNotice = $('#notice');
+  const elEntered = $('#entered'), elResult = $('#result'), elMeta = $('#meta');
+
+  const norm = s => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'').trim();
+
+  function choiceN(arr, n) {
+    const pool = [...arr];
+    const out = [];
+    while (out.length < n && pool.length) {
+      const i = Math.floor(Math.random() * pool.length);
+      out.push(pool.splice(i,1)[0]);
+    }
+    return out;
+  }
+
+  // ----------------------- État -----------------------
+  let currentPool = [];       // les 5 propositions (objets {label, year})
+  let expectedOrder = [];     // labels triés par year asc
+  let entered = [];           // labels saisis validés (dans l'ordre)
+  let acIndex = -1;           // index sélectionné dans autocomplete
+
+  // ----------------------- UI helpers -----------------------
+  function renderChips() {
+    elChips.innerHTML = '';
+    currentPool.forEach(o => {
+      const span = document.createElement('span');
+      span.className = 'chip';
+      span.textContent = `${o.label}`;
+      elChips.appendChild(span);
+    });
+  }
+  function renderEntered() {
+    elEntered.innerHTML = '';
+    entered.forEach((lab,i) => {
+      const d = document.createElement('span');
+      d.className = 'pill';
+      d.textContent = `${i+1}. ${lab}`;
+      elEntered.appendChild(d);
+    });
+  }
+  function setNotice(msg, ok=false) {
+    elNotice.textContent = msg || '';
+    elNotice.classList.remove('ok','ko');
+    if (!msg) return;
+    elNotice.classList.add(ok ? 'ok' : 'ko');
+    if (!ok) {
+      elGuess.classList.remove('shake'); void elGuess.offsetWidth; elGuess.classList.add('shake');
+    }
+  }
+  function clearResult() { elResult.textContent = ''; }
+
+  // ----------------------- Autocomplete -----------------------
+  function closeAC(){ elAC.style.display='none'; elAC.innerHTML=''; acIndex=-1; }
+  function openAC(items){
+    elAC.innerHTML='';
+    items.forEach((lab, i) => {
+      const div = document.createElement('div');
+      div.className = 'ac-item';
+      div.textContent = lab;
+      div.setAttribute('data-index', i);
+      div.addEventListener('mouseenter', () => setActive(i));
+      div.addEventListener('mousedown', (e) => { // mousedown pour éviter blur input
+        e.preventDefault();
+        pickAC(i, true);
+      });
+      elAC.appendChild(div);
+    });
+    const hint = document.createElement('div');
+    hint.className = 'ac-item kbdhint';
+    hint.innerHTML = 'Astuce : <span class="kbd">↓</span>/<span class="kbd">↑</span> pour naviguer, <span class="kbd">Entrée</span> pour insérer';
+    elAC.appendChild(hint);
+    elAC.style.display = items.length ? 'block' : 'none';
+    acIndex = items.length ? 0 : -1;
+    highlightAC();
+  }
+  function highlightAC(){
+    [...elAC.querySelectorAll('.ac-item')].forEach((n,i) => {
+      if (n.classList.contains('kbdhint')) return;
+      n.classList.toggle('active', i === acIndex);
+    });
+  }
+  function setActive(i){
+    const items = elAC.querySelectorAll('.ac-item:not(.kbdhint)');
+    if (!items.length) return;
+    acIndex = Math.max(0, Math.min(i, items.length-1));
+    highlightAC();
+  }
+  function moveAC(delta){
+    const items = elAC.querySelectorAll('.ac-item:not(.kbdhint)');
+    if (!items.length) return;
+    acIndex = (acIndex + delta + items.length) % items.length;
+    highlightAC();
+  }
+  function pickAC(i, andValidate=false){
+    const items = [...elAC.querySelectorAll('.ac-item:not(.kbdhint)')];
+    if (!items.length) return;
+    const lab = items[i].textContent;
+    elGuess.value = lab;
+    closeAC();
+    if (andValidate) validateCurrent();
+  }
+
+  function updateAC(){
+    const q = norm(elGuess.value);
+    const remaining = currentPool.map(o=>o.label).filter(l => !entered.includes(l));
+    if (q.length < 3) { closeAC(); return; }
+    const matches = remaining.filter(l => norm(l).startsWith(q));
+    if (matches.length) openAC(matches); else closeAC();
+  }
+
+  elGuess.addEventListener('input', () => { setNotice(''); clearResult(); updateAC(); });
+  elGuess.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveAC(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); moveAC(-1); }
+    else if (e.key === 'Enter') {
+      // Si une suggestion est active, on l'insère ; sinon on valide le mot tapé
+      const hasOpen = elAC.style.display === 'block';
+      const items = elAC.querySelectorAll('.ac-item:not(.kbdhint)');
+      if (hasOpen && items.length && acIndex >= 0) {
+        e.preventDefault();
+        pickAC(acIndex, true); // insère ET valide
+      } else {
+        e.preventDefault();
+        validateCurrent();
+      }
+    } else if (e.key === 'Escape') {
+      closeAC();
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (!elAC.contains(e.target) && e.target !== elGuess) closeAC();
+  });
+
+  // ----------------------- Jeu -----------------------
+  function newRound() {
+    entered = []; clearResult(); setNotice('');
+    // tirer 5 éléments uniques dans la catégorie choisie
+    const catName = elCat.value;
+    const pool = CATEGORIES[catName];
+    currentPool = choiceN(pool, 5);
+    expectedOrder = [...currentPool].sort((a,b)=>a.year-b.year).map(o=>o.label);
+    renderChips();
+    renderEntered();
+    elMeta.textContent = `Catégorie « ${catName} » — Référence: années ${Math.min(...currentPool.map(o=>o.year))}–${Math.max(...currentPool.map(o=>o.year))}`;
+    elGuess.value = ''; elGuess.focus();
+    closeAC();
+  }
+
+  function validateCurrent(){
+    const val = elGuess.value.trim();
+    if (!val) { setNotice('Entre un mot.', false); return; }
+    // doit être dans les propositions restantes
+    const remaining = currentPool.map(o=>o.label).filter(l => !entered.includes(l));
+    if (!remaining.includes(val)) { setNotice('Mot invalide (non présent ou déjà utilisé).', false); return; }
+    // doit correspondre au prochain attendu
+    const want = expectedOrder[entered.length];
+    if (val === want) {
+      entered.push(val);
+      renderEntered();
+      setNotice('Correct ✅', true);
+      elGuess.value = '';
+      closeAC();
+      // fin de partie si 5
+      if (entered.length === 5) {
+        finish();
+      } else {
+        updateAC();
+        elGuess.focus();
+      }
+    } else {
+      setNotice(`Faux ❌ — Le mot attendu à la position ${entered.length+1} est différent.`, false);
+    }
+  }
+
+  function finish(){
+    // Score: 100 - 5 par erreur (mais ici on valide seulement si bon, donc 100 si réussi sans erreur)
+    // On affiche quand même la correction complète
+    const correct = expectedOrder.join(' → ');
+    elResult.innerHTML = `<span class="ok">Bravo !</span> Ordre correct : ${correct}`;
+    setNotice('');
+  }
+
+  elValidate.addEventListener('click', validateCurrent);
+  elUndo.addEventListener('click', () => {
+    if (!entered.length) return;
+    entered.pop();
+    renderEntered(); setNotice('Dernier retiré.', true);
+    elGuess.value = ''; elGuess.focus();
+    updateAC();
+  });
+  elReset.addEventListener('click', () => { entered = []; renderEntered(); setNotice('Réinitialisé.', true); elGuess.value=''; elGuess.focus(); updateAC(); clearResult(); });
+
+  // ----------------------- Init -----------------------
+  function populateCats(){
+    elCat.innerHTML='';
+    Object.keys(CATEGORIES).forEach(k => {
+      const opt = document.createElement('option');
+      opt.value = k; opt.textContent = k;
+      elCat.appendChild(opt);
+    });
+  }
+  elNew.addEventListener('click', newRound);
+  elCat.addEventListener('change', newRound);
+
+  populateCats();
+  newRound();
+})();
+</script>
+</body>
+</html>
